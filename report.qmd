@@ -8,27 +8,150 @@ format: typst
 ## **Part 0: libraries**
 
 ```{r}
+library(dplyr)
+library(tidyverse)
+library(stringr)
+library(ggplot2)
+library(sf)
+library(rnaturalearth)
+
+total_use_21 <- read.csv("data/total-use-2021.csv")
+total_use_22 <- read.csv("data/total-use-2022.csv")
+total_use_23 <- read.csv("data/total-use-2023.csv")
+renew_use_21 <- read.csv("data/renew-use-2021.csv")
+renew_use_22 <- read.csv("data/renew-use-2022.csv")
+renew_use_23 <- read.csv("data/renew-use-2023.csv")
 
 ```
 
 ## **Part 1:** **Defining Research Question**
 
-Chosen Question:
+Chosen Question: Are states with higher renewable energy use also more likely to use nuclear energy?
 
 ## **Part 2: Data Preparation and Cleaning**
 
 ```{r}
+# standardize Energy_Source column for total use tables
+
+total_use_21[1] <- c("Coal", "Natural Gas", "Petroleum", "Nuclear", "Total Renewable Energy")
+total_use_22[1] <- c("Coal", "Natural Gas", "Petroleum", "Nuclear", "Total Renewable Energy")
+total_use_23[1] <- c("Coal", "Natural Gas", "Petroleum", "Nuclear", "Total Renewable Energy")
+
+mutate(total_use_21, overall = )
+
+# standardize state names for renewable use
+
+renew_use_23$State <- toupper(renew_use_23$State)
+
+# standardize values for renewable use and convert to numeric
+
+renew_use_21 <- renew_use_21 |>
+  mutate(Renewable_Use_2021 = str_remove(Renewable_Use_2021, "\\..*$")) |>
+  mutate(Renewable_Use_2021 = str_extract_all(Renewable_Use_2021, "\\d+") |> 
+                      sapply(paste, collapse = "")) |>
+  mutate(Renewable_Use_2021 = as.numeric(Renewable_Use_2021))
+
+renew_use_22 <- renew_use_22 |>
+  mutate(Renewable_Use_2022 = str_remove(Renewable_Use_2022, "\\..*$")) |>
+  mutate(Renewable_Use_2022 = str_extract_all(Renewable_Use_2022, "\\d+") |> 
+                      sapply(paste, collapse = ""))|>
+  mutate(Renewable_Use_2022 = as.numeric(Renewable_Use_2022))
+
+renew_use_23 <- renew_use_23 |>
+  mutate(Renewable_Use_2023 = str_remove(Renewable_Use_2023, "\\..*$")) |>
+  mutate(Renewable_Use_2023 = str_extract_all(Renewable_Use_2023, "\\d+") |> 
+                      sapply(paste, collapse = ""))|>
+  mutate(Renewable_Use_2023 = as.numeric(Renewable_Use_2023))
+
 
 ```
 
 ## **Part 3: Joining / Pivoting Datasets for Analysis**
 
 ```{r}
+# make table with renewable energy totals for each state in each year
+
+renew_totals <- data.frame(
+    State = colnames(total_use_21)[-1],
+    totals_21 = as.numeric(slice(total_use_21, 5)[, -1]),
+    totals_22 = as.numeric(slice(total_use_22, 5)[, -1]),
+    totals_23 = as.numeric(slice(total_use_23, 5)[, -1]))
+
+# make table that has a row for each state and their nuclear energy usage for each year
+
+nuclear_use <- data.frame(
+    State = colnames(total_use_21)[-1],
+    totals_21 = as.numeric(slice(total_use_21, 4)[, -1]),
+    totals_22 = as.numeric(slice(total_use_22, 4)[, -1]),
+    totals_23 = as.numeric(slice(total_use_23, 4)[, -1]))
+
+# add rows indicating total amount of nuclear energy over the three years and whether or not a state uses nuclear energy at all
+
+nuclear_use <- nuclear_use |>
+    mutate(total_use = rowSums(nuclear_use[c("totals_21", "totals_22", "totals_23")]))|>
+    mutate(status = case_when(total_use == 0 ~ FALSE,
+                              .default = TRUE))
+
+longer_renew <- renew_totals |>
+    pivot_longer(cols = c("totals_21", "totals_22", "totals_23"), names_to = "year", values_to = "usage") |>
+    mutate(year = case_when(year == "totals_21" ~ 2021, year == "totals_22" ~ 2022, year == "totals_23" ~ 2023))
+
+longer_nuclear <- pivot_longer(nuclear_use, cols = c("totals_21", "totals_22", "totals_23"), names_to = "year", values_to = "usage")
+
+# join renew_totals table with nuclear use (T/F) table
+
+renew_nuclear <- left_join(renew_totals, nuclear_use, by = "State")
+
+final <- mutate(longer_renew, nuclear = longer_nuclear$status)
 
 ```
 
 ## **Part 4: Mapping Visualization**
 
 ```{r}
+nuclear_viz <- final |>
+    ggplot(final, aes(x = year, y = usage, color = nuclear, group = State)) + 
+    geom_line(size = 1.1) + scale_x_continuous(breaks = c(2021, 2022, 2023)) + 
+    theme_minimal() + 
+    scale_y_log10() + 
+    labs( title = "Energy Use by State (2021–2023)", x = "Year", y = "Usage (GWh)", color = "Uses Nuclear Energy")
+
+map_1 <- final |>
+    ggplot(aes(x = year, y = usage, color = nuclear, group = State)) +
+    geom_sf(aes(fill = nuclear))
+
+nuclear_state <- final |>
+  group_by(State) |>
+  summarize(nuclear = any(nuclear)) |>
+  ggplot(final) +
+  geom_sf(aes(fill = nuclear), color = "white") +
+  scale_fill_manual(
+    values = c("TRUE" = "#1b9e77", "FALSE" = "#d95f02"),
+    labels = c("FALSE" = "No Nuclear", "TRUE" = "Has Nuclear")
+  )
+
+map <- plot_usmap(data = renew_nuclear, color = "nuclear") +
+    theme(legend.position = "right")
 
 ```
+
+## **Part 5: Final Deliverable**
+
+### Title: Nuclear Energy and Renewable Energy
+
+### Overview: Are states with higher renewable energy use also more likely to use nuclear energy?
+
+### Data and Methods:
+
+```{r}
+head(final)
+head(renew_nuclear)
+```
+
+### Map Visualization: Include the maps from your analysis
+
+![](images/paste-1.png)
+
+# Analysis: Interpret your findings. What patterns do you notice? How does your map help answer the min research question?
+
+I see that there is a correlation between states that have higher total amounts of renewable energy use and states that use nuclear energy.
